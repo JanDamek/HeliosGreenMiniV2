@@ -1,0 +1,337 @@
+
+#import "GetServiceServiceGateProcess.h"
+#import "IFAppDelegate.h"
+#import "XMLreader.h"
+
+@implementation GetServiceServiceGateProcess
+
+@synthesize service = _service;
+@synthesize sessionToken = _sessionToken;
+
+
+- (void)run {
+    IFAppDelegate *d = (IFAppDelegate*)[[UIApplication sharedApplication] delegate];
+    NSMutableDictionary *s = [d aktServerDictionary];
+    if ((![[s valueForKey:@"profil"] isEqualToString:@""]) && (![[s valueForKey:@"lang_gadget"] isEqualToString:@""])){
+        // Create the service
+        _service = [GetServiceServiceGate service];
+        _service.logging = NO;
+        _service.serviceUrl = [d.aktServerURL stringByAppendingString:@"/servicegate.asmx"];
+        
+        _service.username = [s valueForKey:@"username"];
+        _service.password = [s valueForKey:@"password"];
+        
+        // Returns NSString*.
+        UIApplication* app = [UIApplication sharedApplication];
+        app.networkActivityIndicatorVisible = YES;
+        
+        [_service LogOn:self action:@selector(LogOnHandler:) profile: [s valueForKey:@"profil"] username: [s valueForKey:@"username"] password: [s valueForKey:@"password"] language: [s valueForKey:@"lang_gadget"] options: [d getAltConf]];
+    }else {
+        UIApplication* app = [UIApplication sharedApplication];
+        app.networkActivityIndicatorVisible = NO;
+    }
+}
+-(void)doHtml{
+    UIApplication* app = [UIApplication sharedApplication];
+    app.networkActivityIndicatorVisible = YES;
+    
+    IFAppDelegate *d = (IFAppDelegate*)[[UIApplication sharedApplication] delegate];
+    
+    NSString *xml = [NSString stringWithFormat:@"<RUN FUNCTIONID=\"5485\"><USERDATA><Version>43.40.00.07</Version><ResponseFormat>Concatenated</ResponseFormat><SelectedGadgets>%@</SelectedGadgets></USERDATA></RUN>", [d gadgetOrderingList]];
+    
+    [_service ProcessXml:self action:@selector(GettingGadgetHandler:) sessionToken:_sessionToken inputXml:xml];
+    
+}
+
+// Handle the response from KeepAlive.
+
+- (void) KeepAliveHandler: (id) value {
+    
+	// Handle errors
+	if([value isKindOfClass:[NSError class]]) {
+		NSLog(@"ERROR KeepAlive:%@", value);
+		return;
+	}
+    
+	// Handle faults
+	if([value isKindOfClass:[SoapFault class]]) {
+		NSLog(@"FAULT KeepAlive:%@", value);
+		return;
+	}
+    
+    
+	// Do something with the NSString* result
+    //    NSString* result = (NSString*)value;
+    
+}
+
+
+// Handle the response from LogOff.
+
+- (void) LogOffHandler: (id) value {
+    UIApplication* app = [UIApplication sharedApplication];
+    app.networkActivityIndicatorVisible = NO;
+    
+	// Handle errors
+	if([value isKindOfClass:[NSError class]]) {
+        IFAppDelegate *d = [[UIApplication sharedApplication]delegate];
+        d.loadSOAP = NO;
+		NSLog(@"ERROR LogOff:%@", value);
+		return;
+	}
+    
+	// Handle faults
+	if([value isKindOfClass:[SoapFault class]]) {
+        IFAppDelegate *d = [[UIApplication sharedApplication]delegate];
+        d.loadSOAP = NO;
+		NSLog(@"FAULT LogOff:%@", value);
+		return;
+	}
+    
+    
+	// Do something with the NSString* result
+    NSString* result = (NSString*)value;
+    if ([result isEqualToString:@"1"]){
+        _sessionToken = @"";
+    }
+    IFAppDelegate *d = [[UIApplication sharedApplication]delegate];
+    d.loadSOAP = NO;
+    
+}
+
+
+// Handle the response from LogOn.
+
+- (void) LogOnHandler: (id) value {
+    
+    UIApplication* app = [UIApplication sharedApplication];
+    app.networkActivityIndicatorVisible = NO;
+	
+    // Handle errors
+	if([value isKindOfClass:[NSError class]]) {
+        IFAppDelegate *d = [[UIApplication sharedApplication]delegate];
+        d.loadSOAP = NO;
+        [d ClearGadGetList];
+		NSLog(@"ERROR LogOn:%@", value);
+        d.errorLogin = @"Chybné uživatelské jméno nebo heslo";
+		return;
+	}
+    
+	// Handle faults
+	if([value isKindOfClass:[SoapFault class]]) {
+        IFAppDelegate *d = [[UIApplication sharedApplication]delegate];
+        d.loadSOAP = NO;
+        [d ClearGadGetList];
+        d.errorLogin = @"Chybné uživatelské jméno nebo heslo";
+		NSLog(@"FAULT LogOn:%@", value);
+		return;
+	}
+    
+    
+	// Do something with the NSString* result
+    NSString* result = (NSString*)value;
+    NSArray *sesions = [result componentsSeparatedByString:@","];
+    if ([sesions count]>0){
+        _sessionToken = [sesions objectAtIndex:0];
+        if ([_sessionToken hasPrefix:@"ERROR:"]){
+            NSLog(@"LogOn returned the ERROR value: %@", result);
+            _sessionToken = @"";
+            IFAppDelegate *d = [[UIApplication sharedApplication]delegate];
+            d.errorLogin = @"Chybné uživatelské jméno nebo heslo";
+            d.loadSOAP = NO;
+            [d ClearGadGetList];
+        }
+        else {
+            // zadost o seznam gadgetu
+            NSString *string = @"<RUN FUNCTIONID=\"5608\"></RUN>";
+            IFAppDelegate *d = [[UIApplication sharedApplication]delegate];
+            d.errorLogin = @"";
+            
+            [_service ProcessXml:self action:@selector(ProcessXmlHandler:) sessionToken: _sessionToken inputXml: string];
+        }
+    }
+}
+
+
+- (void) GettingGadgetHandler: (id) value {
+    
+    UIApplication* app = [UIApplication sharedApplication];
+    app.networkActivityIndicatorVisible = NO;
+	
+    // Handle errors
+	if([value isKindOfClass:[NSError class]]) {
+        IFAppDelegate *d = [[UIApplication sharedApplication]delegate];
+        d.loadSOAP = NO;
+        [d ClearGadGetList];
+		NSLog(@"ERROR ProcessXml 5485:%@", value);
+		return;
+	}
+    
+	// Handle faults
+	if([value isKindOfClass:[SoapFault class]]) {
+        IFAppDelegate *d = [[UIApplication sharedApplication]delegate];
+        d.loadSOAP = NO;
+        [d ClearGadGetList];
+		NSLog(@"FAULT ProcessXml 5485:%@", value);
+		return;
+	}
+    
+	// Do something with the NSString* result
+    NSString* result = (NSString*)value;
+    
+    if (![result isEqualToString:@""]){
+        //provest nacteni potrebnych dat
+        NSDictionary* xmlDict = [XMLReader dictionaryForXMLString:result error:nil];
+        if (xmlDict.count>0){
+            NSMutableArray *gadgets=[xmlDict valueForKey:@"RUNRESULT"];
+            
+            if (gadgets!=nil && [gadgets count]>0){
+                NSMutableDictionary *gg = [gadgets valueForKey:@"USERDATA"];
+                
+                NSMutableDictionary *g = [gg valueForKey:@"JssScripts"];
+                NSString *js = [g valueForKey:@"text"];
+                if (js == nil){
+                    js = @"";
+                }
+                
+                g = [gg valueForKey:@"CssStyles"];
+                NSString *css = [g valueForKey:@"text"];
+                if (css == nil){
+                    css = @"";
+                }
+                
+                
+                IFAppDelegate *d = (IFAppDelegate*)[[UIApplication sharedApplication]delegate];
+                NSString *docsDir = [[d applicationDocumentsDirectory] stringByAppendingString:@"/gg.css"];
+                
+                NSError *error;
+                NSString *css_default = [NSString stringWithContentsOfFile:docsDir encoding:NSUnicodeStringEncoding error:&error];
+                if (error){
+                    NSLog(@"Error open CSS:%@:",error);
+                }
+                
+                g = [gg valueForKey:@"HtmlData"];
+                NSString *html = [g valueForKey:@"text"];
+                if (html == nil){
+                    html = @"";
+                }
+                
+                NSString *html_web = @"<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\"><html xmlns=\"http://www.w3.org/1999/xhtml\"><head></head><body id=\"b1\">\n";
+                
+                html_web = [html_web stringByAppendingFormat:@"<style type=\"text/css\">\n%@\n</style>\n", css_default];
+                
+                
+                html_web = [html_web stringByAppendingFormat:@"<style type=\"text/css\">\n%@\n.dockedVisible{display:none}\n%@</style>\n", css,@"%@"];
+                
+                
+                if ([js length]>0){
+                    html_web = [html_web stringByAppendingFormat:@"<script type=\"text/javascript\">\n%@\n</script>", js];
+                }
+                html_web = [html_web stringByAppendingFormat:@"%@\n</body></html>", html];
+                
+                NSLog(@"HTML:%@",html_web);
+                
+                NSMutableDictionary *s = [d aktServerDictionary];
+                [s setValue:html_web forKey:@"gadget"];
+                d.gadgetHTML = html_web;
+                d.loadSOAP = YES;
+                
+            }else{
+                IFAppDelegate *d = [[UIApplication sharedApplication]delegate];
+                d.loadSOAP = NO;
+                [d ClearGadGetList];
+            }
+        }else{
+            IFAppDelegate *d = [[UIApplication sharedApplication]delegate];
+            d.loadSOAP = NO;
+            [d ClearGadGetList];
+        }
+    }else{
+        IFAppDelegate *d = [[UIApplication sharedApplication]delegate];
+        d.loadSOAP = NO;
+        [d ClearGadGetList];
+    }
+    [_service LogOff:self action:@selector(LogOffHandler:) sessionToken:_sessionToken];
+}
+
+// Handle the response from ProcessXml.
+
+- (void) ProcessXmlHandler: (id) value {
+    
+    UIApplication* app = [UIApplication sharedApplication];
+    app.networkActivityIndicatorVisible = NO;
+    
+	// Handle errors
+	if([value isKindOfClass:[NSError class]]) {
+        IFAppDelegate *d = [[UIApplication sharedApplication]delegate];
+        d.loadSOAP = NO;
+        [d ClearGadGetList];
+		NSLog(@"ERROR ProcessXML:%@", value);
+		return;
+	}
+    
+	// Handle faults
+	if([value isKindOfClass:[SoapFault class]]) {
+        IFAppDelegate *d = [[UIApplication sharedApplication]delegate];
+        d.loadSOAP = NO;
+        [d ClearGadGetList];
+		NSLog(@"FAULT ProccesXML:%@", value);
+		return;
+	}
+    
+    
+	// Do something with the NSString* result
+    NSString* result = (NSString*)value;
+    
+    //nactena data
+    //provest proces nacteni dat dle obsahu
+    if (![result isEqualToString:@""]){
+        //provest nacteni potrebnych dat
+        NSDictionary* xmlDict = [XMLReader dictionaryForXMLString:result error:nil];
+        if (xmlDict.count>0){
+            IFAppDelegate *d = (IFAppDelegate*)[[UIApplication sharedApplication] delegate];
+            
+            NSMutableArray *gadgets=[xmlDict valueForKey:@"RUNRESULT"];
+            
+            if (gadgets!=nil && [gadgets count]>0){
+                gadgets = [gadgets valueForKey:@"USERDATA"];
+                
+                if (gadgets!=nil && [gadgets count]>0){
+                    gadgets = [gadgets valueForKey:@"Gadgets"];
+                    
+                    if (gadgets!=nil && [gadgets count]>0){
+                        gadgets = [gadgets valueForKey:@"Gadget"];
+                        
+                        NSMutableArray *dgadgetList = [[NSMutableArray alloc]init];
+                        for (int i=0;i<[gadgets count];i++){
+                            NSMutableDictionary *gg = [gadgets objectAtIndex:i];
+                            [dgadgetList addObject:gg];
+                        }
+                        [d compareGadgetList:dgadgetList];
+                        [self doHtml];
+                    }
+                }else
+                {
+                    IFAppDelegate *d = [[UIApplication sharedApplication]delegate];
+                    d.loadSOAP = NO;
+                    [d ClearGadGetList];
+                }
+            }else{
+                IFAppDelegate *d = [[UIApplication sharedApplication]delegate];
+                d.loadSOAP = NO;
+                [d ClearGadGetList];
+            }
+        }else{
+            IFAppDelegate *d = [[UIApplication sharedApplication]delegate];
+            d.loadSOAP = NO;
+            [d ClearGadGetList];
+        }
+    } else {
+        IFAppDelegate *d = [[UIApplication sharedApplication]delegate];
+        d.loadSOAP = NO;
+        [d ClearGadGetList];
+    }
+}
+
+
+@end
